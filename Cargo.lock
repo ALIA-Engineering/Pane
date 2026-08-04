@@ -2545,7 +2545,7 @@ checksum = "d211803b9b6b570f68772237e415a029d5a50c65d382910b879fb19d3271f94d"
 
 [[package]]
 name = "pane"
-version = "4.0.0"
+version = "0.4.1"
 dependencies = [
  "color-eyre",
  "crossterm",

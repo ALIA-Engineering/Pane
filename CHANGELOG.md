@@ -2,6 +2,112 @@
 
 All notable changes to Pane will be documented here.
 
+## [0.4.1] - 2026-08-04 - Taskbar icon, PDH docs, NVML perf
+
+### Fixed
+
+- **Taskbar icon missing when the app runs.** Pane now registers a stable
+  AppUserModelID (`TxsharDev.Pane`) at startup via
+  `SetCurrentProcessExplicitAppUserModelID`, so Windows can associate the
+  window with the app for taskbar grouping and icon display.
+- **`pdh.rs` doc comment claimed the PowerShell fallback costs ~100 ms per
+  refresh**; each `Get-Counter` invocation actually costs ~2.8 s. The comment
+  now matches the measured figure.
+- **NVML process-name lookup constructed a fresh `sysinfo::System` per PID per
+  refresh** (~120 constructions per second at 500 ms refresh across 30
+  processes). One shared `System`, refreshed once per tick, is used instead.
+
+## [0.4.0] - 2026-07-24 - Version reset, real PDH, tests
+
+**Version renumbered from 4.0.1 down to 0.4.0.** The 1.0.0 -> 4.0.0 jump happened
+across three commits over two days and did not mean anything: there was no stable
+public API, no release cadence, and no compatibility promise behind those numbers.
+Pane is pre-1.0 software. `0.4.0` is deliberately chosen to keep the ordinal
+"fourth milestone" sense of the old numbering while being honest about maturity.
+The `v4.0.0` git tag is left alone; it stays as a historical marker.
+
+The entries below this release are preserved verbatim as they were written. Some
+of them overstate what shipped (see 3.2.0's "Per-process GPU metrics via PDH",
+which was actually PowerShell). They are kept for the record rather than rewritten.
+
+### What actually exists today
+
+- **Monitoring:** GPU (NVIDIA, via NVML), CPU, RAM, disk, network, processes,
+  dashboard, VRAM headroom calculator, performance snapshot export.
+- **Per-process GPU %, dedicated VRAM and shared VRAM:** Windows only, via PDH.
+- **Hardware control:** exactly one - the NVML power limit. Nothing else.
+- **Two binaries:** `pane` (egui GUI) and `pane-tui` (ratatui TUI, optional feature).
+
+### Added
+
+- **Real PDH implementation.** `src/metrics/gpu/pdh.rs` now calls the Windows
+  PDH API directly through `windows-rs`: `PdhOpenQueryW`,
+  `PdhAddEnglishCounterW`, `PdhCollectQueryData`, `PdhGetFormattedCounterArrayW`
+  against `\GPU Engine(*)\Utilization Percentage` and
+  `\GPU Process Memory(*)\Dedicated Usage` / `Shared Usage`. One query is opened
+  at startup and re-sampled per tick. Measured at ~1.8 ms per refresh on a
+  dual-GPU box with ~780 counter instances, replacing two PowerShell
+  `Get-Counter` invocations that cost ~2.8 s each.
+- **PDH instance-name parser** for `pid_<PID>_luid_<hi>_<lo>_phys_<N>[_eng_<N>_engtype_<NAME>]`,
+  exposed as pure functions so it can be tested without a GPU.
+- **Documented aggregation semantics:** utilization is the max across engines
+  for a PID; memory is summed across physical adapters.
+- **PowerShell `Get-Counter` retained as an explicit fallback**, used only if
+  PDH initialisation or collection fails. `PdhGpuCollector::source()` reports
+  which path produced the data.
+- **58 unit tests** (previously zero), covering: PDH and PowerShell counter
+  parsing including malformed input, NVML graphics/compute process merging and
+  deduplication, VRAM/LLM-quantization calculator maths, single- vs dual-GPU
+  VRAM aggregation and split verdicts, byte formatting, the history ring
+  buffer, and process sorting/filtering.
+- **Two live hardware tests** marked `#[ignore]` (`live_pdh_returns_data`,
+  `live_nvml_reports_devices`) for manual verification on a real machine.
+- **CI now runs `cargo test`** on Windows, Linux and macOS x64, and clippy over
+  the `pane-tui` binary as well as `pane`.
+
+### Fixed
+
+- **PowerShell fallback silently returned no memory data.** It fed a full
+  counter *path* to a parser that expects a bare instance name, so every
+  `GPU Process Memory` sample was dropped. Added `instance_from_path` and a
+  regression test.
+- **Reduced compiler warnings from 24 to 0** on both binaries
+  (`cargo clippy --all-targets` is clean). The 24 were all
+  `float_literal_f32_fallback` future-incompatibility warnings in the egui
+  layer; the rest were unused `Result`s, a collapsible match arm, and dead code
+  that is genuinely GUI-only and is now marked as such.
+- TUI process kill no longer discards its error; failures surface in the status bar.
+
+### Changed
+
+- Fan-speed and clock-offset controls are now labelled **"Not implemented"**
+  instead of "Requires NVAPI (coming soon)". They were never implemented and
+  there is no NVAPI code in the repo. They remain disabled and inert.
+- `merge_processes` in the NVML backend replaces inline dedup logic; a PID
+  appearing in both the graphics and compute lists is reported once, memory
+  summed, and sorted by VRAM descending with a stable PID tiebreak.
+- README rewritten so every claim matches the code: the "hardware controls"
+  plural is gone, the PDH claim is now true, the PowerShell overhead figure is
+  corrected, and the Limitations section is substantially extended.
+
+### Removed
+
+- **`amd` cargo feature.** It was empty - no AMD code existed behind it.
+- **`src/tray.rs`.** It contained two comment lines and no implementation. The
+  `mod tray;` declaration went with it.
+- **`Win32_Graphics_Direct3D`** windows-rs feature - never used.
+- **`mod ui` from `src/main.rs`.** The GUI binary was compiling the entire
+  ratatui tree behind `#[allow(dead_code)]`. `src/ui/` is still live: it is the
+  TUI, used by the `pane-tui` binary only.
+
+### Not done
+
+- **NVAPI fan and clock control.** `NvAPI_GPU_SetCoolerLevels` and
+  `NvAPI_GPU_SetPstates20` are undocumented, require privileged access, and
+  cannot be verified safely on a live workstation. Documentation was corrected
+  instead of shipping something unverified.
+- **AMD / Intel device-level metrics.** No ADL/ADLX/Level Zero code was added.
+
 ## [4.0.1] - 2026-05-26
 
 ### Fixed

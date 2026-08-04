@@ -117,26 +117,26 @@ pub fn apply(ctx: &egui::Context, mode: ThemeMode) {
     let cr = CornerRadius::same(6);
 
     visuals.widgets.noninteractive.bg_fill = pal.panel_bg;
-    visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, pal.dim);
+    visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, pal.dim);
     visuals.widgets.noninteractive.corner_radius = cr;
 
     visuals.widgets.inactive.bg_fill = pal.card_bg;
-    visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, pal.text);
+    visuals.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, pal.text);
     visuals.widgets.inactive.corner_radius = cr;
 
     visuals.widgets.hovered.bg_fill = pal.hover_bg;
-    visuals.widgets.hovered.fg_stroke = Stroke::new(1.5, pal.accent);
+    visuals.widgets.hovered.fg_stroke = Stroke::new(1.5_f32, pal.accent);
     visuals.widgets.hovered.corner_radius = cr;
 
     visuals.widgets.active.bg_fill = pal.active_bg;
-    visuals.widgets.active.fg_stroke = Stroke::new(1.5, pal.accent);
+    visuals.widgets.active.fg_stroke = Stroke::new(1.5_f32, pal.accent);
     visuals.widgets.active.corner_radius = cr;
 
     visuals.selection.bg_fill = pal.accent.gamma_multiply(0.12);
-    visuals.selection.stroke = Stroke::new(1.0, pal.accent);
+    visuals.selection.stroke = Stroke::new(1.0_f32, pal.accent);
 
     visuals.window_corner_radius = CornerRadius::same(8);
-    visuals.window_stroke = Stroke::new(1.0, pal.border);
+    visuals.window_stroke = Stroke::new(1.0_f32, pal.border);
     visuals.striped = true;
 
     ctx.set_visuals(visuals);

@@ -8,7 +8,7 @@
 
 <p align="center">
 Your OS hides what your hardware is actually doing. Pane cracks it open.<br>
-Per-process VRAM. Real GPU metrics. Hardware controls. One binary. ~5MB. No bloat.
+Per-process VRAM. Real GPU metrics. NVML power-limit control. One binary. ~5MB. No bloat.
 </p>
 
 <p align="center">
@@ -82,7 +82,7 @@ Per-interface download and upload rates with session totals. See what's actually
 
 ### Processes
 
-Full process table with **GPU% and VRAM columns** that actually work (via Windows PDH - same data source as Task Manager). Sort by any column. Filter instantly. Close or force-kill with confirmation. Don't recognize a process? Hit the search button.
+Full process table with **GPU% and VRAM columns** that actually work (via the Windows PDH API - same data source as Task Manager). Sort by any column. Filter instantly. Close or force-kill with confirmation. Don't recognize a process? Hit the search button.
 
 <p align="center">
   <img src="assets/processes.png" alt="Processes Panel" width="800">
@@ -90,7 +90,9 @@ Full process table with **GPU% and VRAM columns** that actually work (via Window
 
 ### GPU Control
 
-Power limit slider wired directly to NVML - it actually changes your card's power target. Requires admin, and Pane tells you upfront with a clear banner instead of silently failing. Fan speed and clock offsets coming soon (NVAPI), labeled honestly.
+**One control is implemented: the power limit.** The slider is wired directly to NVML's `SetPowerManagementLimit` and really does change your card's power target. It requires admin, and Pane says so with a banner instead of silently failing.
+
+The fan-speed and clock-offset rows on this panel are **display only and do nothing.** They are disabled and labelled "Not implemented". Making them work needs NVAPI, which is undocumented and privileged; Pane does not link against it. They are kept visible only so the panel layout matches what a future implementation would look like.
 
 <p align="center">
   <img src="assets/gpu-control.png" alt="GPU Control Panel" width="800">
@@ -176,7 +178,11 @@ Pane fixes that.
 
 NVIDIA's NVML returns `NOT_AVAILABLE` for per-process VRAM on consumer GPUs running WDDM. Most tools stop here and show you nothing useful.
 
-Pane uses **Windows Performance Counters (PDH)** - the same data source Task Manager reads internally. GPU Engine counters for per-process utilization across engines (3D, decode, encode, copy). GPU Process Memory counters for dedicated + shared VRAM per process. No admin elevation needed. Works across NVIDIA, AMD, and Intel GPUs.
+Pane calls the **PDH (Performance Data Helper) API directly** through `windows-rs` - `PdhOpenQueryW` / `PdhAddEnglishCounterW` / `PdhCollectQueryData` / `PdhGetFormattedCounterArrayW` - against `\GPU Engine(*)\Utilization Percentage` and `\GPU Process Memory(*)\Dedicated Usage` + `Shared Usage`. Instance names of the form `pid_<PID>_luid_<hi>_<lo>_phys_<N>[_eng_<N>_engtype_<NAME>]` are parsed to attribute counters to processes: utilization is the max across engines, memory is summed across adapters. No admin elevation needed. Works across NVIDIA, AMD, and Intel GPUs.
+
+One query is opened at startup and re-sampled each tick, costing roughly **2 ms per refresh** on a dual-GPU machine with ~780 counter instances.
+
+If PDH initialisation fails, Pane falls back to shelling out to PowerShell `Get-Counter` and parsing its text output. That path costs seconds per refresh and exists only so the process table is not empty where PDH is unavailable.
 
 PDH values may have minor variances compared to nvidia-smi (different API path). Dedicated memory tracking can lag slightly, and some driver-level allocations may not be attributed to specific processes. This is the same data and the same accuracy as Task Manager.
 
@@ -184,11 +190,18 @@ PDH values may have minor variances compared to nvidia-smi (different API path).
 
 ## Current Limitations
 
-- **Fan speed and clock offsets** need NVAPI (not yet integrated). Only power limit control works today.
-- **GPU Control requires admin** - monitoring works without elevation, but changing power limits needs it. Pane shows this clearly.
-- **Per-process GPU data is Windows-only** - no PDH equivalent on Linux/macOS with the same depth.
-- **AMD GPU support** is planned but not implemented yet.
-- **PDH collection** uses PowerShell internally, adding ~100ms overhead per cycle.
+Read this before filing a bug.
+
+- **Only one hardware control is implemented: the power limit** (NVML). The fan-speed and clock-offset sliders on the GPU Control panel are inert placeholders - disabled, and they do nothing. NVAPI is not integrated and there is no timeline.
+- **GPU Control requires admin** - monitoring works without elevation, but changing the power limit needs it. Pane shows this clearly.
+- **Per-process GPU data is Windows-only.** There is no PDH on Linux/macOS; the collector is a no-op stub there and the GPU% / VRAM process columns stay empty.
+- **AMD and Intel GPUs get per-process data only** (PDH is vendor agnostic). Device-level metrics - temperature, power, clocks, PCIe, fan - come from NVML and are **NVIDIA only**. There is no ADL/ADLX code in this repo.
+- **macOS GPU support is effectively nil.** CPU/RAM/disk/network work; the GPU panels will be empty.
+- **Fan speed is a percentage, not RPM**, despite the field being named `fan_rpm`.
+- **Hotspot and VRAM temperatures are never populated** - NVML does not expose them on consumer cards, so those rows stay blank.
+- **The PowerShell fallback is slow.** If native PDH fails to initialise, per-process collection costs seconds, not milliseconds.
+- **Two UI trees exist on purpose**, not by accident: `src/gui/` is the egui GUI used by the `pane` binary; `src/ui/` is the ratatui TUI used by the optional `pane-tui` binary. They render the same `App` state with different toolkits and are not copies of each other. The TUI lags the GUI - it has no VRAM Calculator or Snapshot panel.
+- **The system tray is not implemented.** It was removed in 3.6.0 because of Win32 message-loop conflicts with eframe/winit and has not come back.
 
 ---
 
@@ -197,7 +210,8 @@ PDH values may have minor variances compared to nvidia-smi (different API path).
 ```bash
 git clone https://github.com/TxsharDev/pane.git
 cd pane
-cargo build --release
+cargo build --release   # both binaries
+cargo test              # 56 unit tests + 2 live
 ```
 
 Binary at `target/release/pane.exe` (Windows) or `target/release/pane` (Linux/macOS). Requires Rust 1.85+.
@@ -206,7 +220,7 @@ Binary at `target/release/pane.exe` (Windows) or `target/release/pane` (Linux/ma
 
 ## Tech Stack
 
-Immediate-mode GUI via [egui](https://github.com/emilk/egui) with hardware-accelerated rendering (eframe, glow backend). System metrics via [sysinfo](https://github.com/GuillaumeGomez/sysinfo). NVIDIA GPU via [nvml-wrapper](https://github.com/Cldfire/nvml-wrapper). Per-process GPU on Windows via [windows-rs](https://github.com/microsoft/windows-rs) PDH. CI builds for Windows, Linux, macOS (x64 + ARM64) via GitHub Actions.
+Immediate-mode GUI via [egui](https://github.com/emilk/egui) with hardware-accelerated rendering (eframe, glow backend). Optional ratatui TUI as a second binary. System metrics via [sysinfo](https://github.com/GuillaumeGomez/sysinfo). NVIDIA device metrics and power-limit control via [nvml-wrapper](https://github.com/Cldfire/nvml-wrapper). Per-process GPU data on Windows via the PDH API, called directly through [windows-rs](https://github.com/microsoft/windows-rs) (`Win32_System_Performance`), with a PowerShell `Get-Counter` fallback. CI builds for Windows, Linux, macOS (x64 + ARM64) via GitHub Actions and runs the unit-test suite.
 
 ---
 
@@ -215,16 +229,21 @@ Immediate-mode GUI via [egui](https://github.com/emilk/egui) with hardware-accel
 MIT License. Contributions welcome.
 
 **High-impact areas:**
-- AMD GPU support (ADLX FFI)
+- AMD / Intel device-level metrics (ADLX / Level Zero FFI) - nothing exists today
 - Linux GPU depth (/sys/class/drm)
 - NVAPI integration (fan, clocks)
 - UI/UX and widget improvements
 
 ```bash
-cargo run             # Debug
-cargo build --release # Release
-cargo clippy          # Zero warnings policy
+cargo run                    # Debug (GUI)
+cargo run --bin pane-tui     # Debug (TUI)
+cargo build --release        # Release
+cargo test                   # Unit tests - pure parsing / maths, no GPU needed
+cargo test -- --ignored      # Live hardware tests (needs Windows + an NVIDIA GPU)
+cargo clippy --all-targets   # Zero warnings policy
 ```
+
+Tests cover PDH / PowerShell counter-instance parsing, NVML process merging, dual-GPU VRAM aggregation, the LLM quantization calculator maths, and process sorting/filtering. Anything that touches real hardware is marked `#[ignore]` so CI stays deterministic.
 
 ---
 

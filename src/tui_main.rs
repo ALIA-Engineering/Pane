@@ -95,8 +95,10 @@ fn handle_input(app: &mut App, key: KeyCode) {
     if app.confirm_kill.is_some() {
         match key {
             KeyCode::Char('y') | KeyCode::Char('Y') => {
-                if let Some(pid) = app.confirm_kill.take() {
-                    collect::kill_process(pid);
+                if let Some(pid) = app.confirm_kill.take()
+                    && let Err(e) = collect::kill_process(pid)
+                {
+                    app.status_msg = Some((e, true));
                 }
             }
             _ => { app.confirm_kill = None; }
@@ -186,9 +188,7 @@ fn handle_input(app: &mut App, key: KeyCode) {
 
         // GPU select
         KeyCode::Char('1') => app.selected_gpu = 0,
-        KeyCode::Char('2') => {
-            if app.gpus.len() > 1 { app.selected_gpu = 1; }
-        }
+        KeyCode::Char('2') if app.gpus.len() > 1 => app.selected_gpu = 1,
         _ => {}
     }
 }

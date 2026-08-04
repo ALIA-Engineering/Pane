@@ -47,8 +47,18 @@ jobs:
       - name: Build
         run: cargo build --release --target ${{ matrix.target }} --bin pane --no-default-features --features nvidia
 
+      # Unit tests are pure (parsing / maths / aggregation) - no GPU needed.
+      # Tests that touch real hardware are #[ignore]d and are not run in CI.
+      - name: Test
+        run: cargo test --target ${{ matrix.target }} --bin pane --no-default-features --features nvidia
+        if: matrix.target != 'aarch64-apple-darwin'
+
       - name: Clippy
         run: cargo clippy --release --target ${{ matrix.target }} --bin pane --no-default-features --features nvidia -- -D warnings
+        if: matrix.target == 'x86_64-pc-windows-msvc'
+
+      - name: Clippy (TUI binary)
+        run: cargo clippy --release --target ${{ matrix.target }} --bin pane-tui --features tui -- -D warnings
         if: matrix.target == 'x86_64-pc-windows-msvc'
 
       - name: Upload artifact

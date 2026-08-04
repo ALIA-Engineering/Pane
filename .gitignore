@@ -1,4 +1,5 @@
 /target
+.codegraph/
 *.pdb
 .DS_Store
 .idea/

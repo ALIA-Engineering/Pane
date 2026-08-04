@@ -10,7 +10,7 @@ pub fn stat_card(ui: &mut egui::Ui, label: &str, value: &str, pct: Option<f64>, 
     egui::Frame::NONE
         .fill(p.card_bg)
         .corner_radius(CornerRadius::same(8))
-        .stroke(Stroke::new(1.0, p.border))
+        .stroke(Stroke::new(1.0_f32, p.border))
         .inner_margin(egui::Margin::same(10))
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
@@ -69,7 +69,7 @@ pub fn chart(ui: &mut egui::Ui, data: &[f64], color: Color32, height: f32, label
         let y = rect.bottom() - h * frac as f32;
         painter.line_segment(
             [egui::pos2(rect.left(), y), egui::pos2(rect.right(), y)],
-            Stroke::new(0.5, p.chart_grid),
+            Stroke::new(0.5_f32, p.chart_grid),
         );
     }
 
@@ -96,7 +96,7 @@ pub fn chart(ui: &mut egui::Ui, data: &[f64], color: Color32, height: f32, label
     }
 
     if line_points.len() >= 2 {
-        painter.add(egui::Shape::line(line_points, Stroke::new(1.5, color)));
+        painter.add(egui::Shape::line(line_points, Stroke::new(1.5_f32, color)));
     }
 
     // Y-axis labels
@@ -173,4 +173,32 @@ pub fn format_bytes(bytes: u64) -> String {
 
 pub fn format_rate(bytes_sec: u64) -> String {
     format!("{}/s", format_bytes(bytes_sec))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{format_bytes, format_rate};
+
+    #[test]
+    fn formats_binary_units() {
+        assert_eq!(format_bytes(0), "0 B");
+        assert_eq!(format_bytes(512), "512 B");
+        assert_eq!(format_bytes(1024), "1.0 KB");
+        assert_eq!(format_bytes(1536), "1.5 KB");
+        assert_eq!(format_bytes(1024 * 1024), "1.0 MB");
+        assert_eq!(format_bytes(32 * 1024 * 1024 * 1024), "32.0 GB");
+        assert_eq!(format_bytes(1024u64.pow(4)), "1.0 TB");
+    }
+
+    #[test]
+    fn boundaries_pick_the_larger_unit() {
+        assert_eq!(format_bytes(1023), "1023 B");
+        assert_eq!(format_bytes(1024 * 1024 - 1), "1024.0 KB");
+    }
+
+    #[test]
+    fn rate_appends_per_second() {
+        assert_eq!(format_rate(1024), "1.0 KB/s");
+        assert_eq!(format_rate(0), "0 B/s");
+    }
 }

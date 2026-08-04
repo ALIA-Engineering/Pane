@@ -368,3 +368,166 @@ impl App {
         procs
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn proc(pid: u32, name: &str, cpu: f64, mem: u64, util: Option<f64>, vram: Option<u64>) -> ProcessInfo {
+        ProcessInfo {
+            pid,
+            name: name.into(),
+            cpu_usage: cpu,
+            memory_bytes: mem,
+            gpu_util: util,
+            gpu_vram: vram,
+        }
+    }
+
+    fn app_with(procs: Vec<ProcessInfo>) -> App {
+        let mut app = App::new(Duration::from_millis(500));
+        app.processes = procs;
+        app
+    }
+
+    fn sample() -> Vec<ProcessInfo> {
+        vec![
+            proc(100, "chrome.exe", 5.0, 800, Some(3.0), Some(3 * 1024 * 1024 * 1024)),
+            proc(200, "Ollama.exe", 1.0, 400, Some(90.0), Some(20 * 1024 * 1024 * 1024)),
+            proc(300, "idle", 0.0, 100, None, None),
+        ]
+    }
+
+    #[test]
+    fn history_is_a_bounded_ring_buffer() {
+        let mut h = History::new();
+        for i in 0..(HISTORY_LEN + 50) {
+            h.push(i as f64);
+        }
+        assert_eq!(h.data.len(), HISTORY_LEN);
+        // Oldest samples were dropped; newest is last.
+        assert_eq!(h.last(), (HISTORY_LEN + 49) as f64);
+        assert_eq!(h.data[0], 50.0);
+    }
+
+    #[test]
+    fn empty_history_last_is_zero() {
+        assert_eq!(History::new().last(), 0.0);
+    }
+
+    #[test]
+    fn vram_pct_is_safe_when_total_unknown() {
+        let mut g = GpuMetrics {
+            name: "RTX 5090".into(),
+            utilization: 0.0,
+            utilization_history: History::new(),
+            vram_used: 8 * 1024 * 1024 * 1024,
+            vram_total: 32 * 1024 * 1024 * 1024,
+            vram_history: History::new(),
+            temp_core: None,
+            temp_hotspot: None,
+            temp_vram: None,
+            temp_history: History::new(),
+            power_watts: None,
+            power_limit: None,
+            power_history: History::new(),
+            fan_rpm: None,
+            clock_core_mhz: None,
+            clock_mem_mhz: None,
+            pcie_tx_bytes_sec: None,
+            pcie_rx_bytes_sec: None,
+            processes: Vec::new(),
+        };
+        assert!((g.vram_pct() - 25.0).abs() < 1e-9);
+        // Driver not reporting total must not divide by zero.
+        g.vram_total = 0;
+        assert_eq!(g.vram_pct(), 0.0);
+    }
+
+    #[test]
+    fn sorts_by_gpu_vram_descending_by_default() {
+        let app = app_with(sample());
+        let mut app = app;
+        app.sort_column = SortColumn::GpuVram;
+        app.sort_ascending = false;
+        let pids: Vec<u32> = app.sorted_processes().iter().map(|p| p.pid).collect();
+        assert_eq!(pids, vec![200, 100, 300]);
+    }
+
+    #[test]
+    fn sorts_by_gpu_util_ascending_treats_none_as_zero() {
+        let mut app = app_with(sample());
+        app.sort_column = SortColumn::GpuUtil;
+        app.sort_ascending = true;
+        let pids: Vec<u32> = app.sorted_processes().iter().map(|p| p.pid).collect();
+        assert_eq!(pids, vec![300, 100, 200]);
+    }
+
+    #[test]
+    fn sorts_by_name_case_insensitively() {
+        let mut app = app_with(sample());
+        app.sort_column = SortColumn::Name;
+        app.sort_ascending = true;
+        let names: Vec<&str> = app.sorted_processes().iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, vec!["chrome.exe", "idle", "Ollama.exe"]);
+    }
+
+    #[test]
+    fn filter_is_case_insensitive_substring() {
+        let mut app = app_with(sample());
+        app.filter = "OLLAMA".into();
+        let pids: Vec<u32> = app.sorted_processes().iter().map(|p| p.pid).collect();
+        assert_eq!(pids, vec![200]);
+
+        app.filter = "nomatch".into();
+        assert!(app.sorted_processes().is_empty());
+
+        app.filter.clear();
+        assert_eq!(app.sorted_processes().len(), 3);
+    }
+
+    #[test]
+    fn sorting_nan_cpu_does_not_panic() {
+        let mut app = app_with(vec![
+            proc(1, "a", f64::NAN, 1, None, None),
+            proc(2, "b", 5.0, 2, None, None),
+        ]);
+        app.sort_column = SortColumn::Cpu;
+        assert_eq!(app.sorted_processes().len(), 2);
+    }
+
+    #[test]
+    fn panel_cycle_visits_every_panel_once() {
+        let mut seen = Vec::new();
+        let mut p = Panel::Dashboard;
+        for _ in 0..10 {
+            seen.push(p);
+            p = p.next();
+        }
+        assert_eq!(p, Panel::Dashboard, "cycle should close");
+        seen.sort_by_key(|p| p.label());
+        seen.dedup_by_key(|p| p.label());
+        assert_eq!(seen.len(), 10, "every panel should appear exactly once");
+    }
+
+    #[test]
+    fn sort_column_cycle_closes() {
+        let mut c = SortColumn::Pid;
+        for _ in 0..6 {
+            c = c.next();
+        }
+        assert_eq!(c, SortColumn::Pid);
+    }
+
+    #[test]
+    fn control_row_next_and_prev_are_inverses() {
+        for row in [
+            ControlRow::FanSpeed,
+            ControlRow::PowerLimit,
+            ControlRow::CoreClock,
+            ControlRow::MemClock,
+        ] {
+            assert_eq!(row.next().prev(), row);
+        }
+    }
+}

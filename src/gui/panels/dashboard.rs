@@ -13,7 +13,7 @@ pub fn draw(ui: &mut egui::Ui, app: &App) {
                 .fill(theme::p().panel_bg)
                 .corner_radius(egui::CornerRadius::same(6))
                 .stroke(egui::Stroke::new(
-                    if i == app.selected_gpu { 1.5 } else { 1.0 },
+                    if i == app.selected_gpu { 1.5_f32 } else { 1.0_f32 },
                     if i == app.selected_gpu { theme::p().accent } else { theme::p().border },
                 ))
                 .inner_margin(egui::Margin::same(10))

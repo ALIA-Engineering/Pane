@@ -90,7 +90,7 @@ pub fn draw(ui: &mut egui::Ui, app: &mut App) {
                 egui::Frame::NONE
                     .fill(p.red.gamma_multiply(0.1))
                     .corner_radius(egui::CornerRadius::same(6))
-                    .stroke(egui::Stroke::new(1.0, p.red))
+                    .stroke(egui::Stroke::new(1.0_f32, p.red))
                     .inner_margin(egui::Margin::same(8))
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {

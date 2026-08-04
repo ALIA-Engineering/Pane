@@ -1,7 +1,9 @@
 //! GPU Control panel - fan, power limit, clock offsets with sliders.
 //!
 //! Power limit control is wired to NVML (requires admin).
-//! Fan speed and clock offsets require NVAPI (not yet implemented).
+//! Fan speed and clock offsets are NOT implemented. The sliders are shown
+//! read-only and disabled; changing them does nothing. Implementing them
+//! needs NVAPI (undocumented, privileged), which Pane does not link against.
 
 use std::sync::mpsc;
 use eframe::egui;
@@ -36,7 +38,7 @@ pub fn draw(ui: &mut egui::Ui, app: &mut App, cmd_tx: &mpsc::Sender<GpuCommand>)
             egui::Frame::NONE
                 .fill(p.yellow.gamma_multiply(0.1))
                 .corner_radius(egui::CornerRadius::same(6))
-                .stroke(egui::Stroke::new(1.0, p.yellow))
+                .stroke(egui::Stroke::new(1.0_f32, p.yellow))
                 .inner_margin(egui::Margin::same(8))
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
@@ -75,7 +77,7 @@ pub fn draw(ui: &mut egui::Ui, app: &mut App, cmd_tx: &mpsc::Sender<GpuCommand>)
         egui::Frame::NONE
             .fill(p.panel_bg)
             .corner_radius(egui::CornerRadius::same(6))
-            .stroke(egui::Stroke::new(1.0, if elevated { p.accent } else { p.border }))
+            .stroke(egui::Stroke::new(1.0_f32, if elevated { p.accent } else { p.border }))
             .inner_margin(egui::Margin::same(12))
             .show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
@@ -99,18 +101,18 @@ pub fn draw(ui: &mut egui::Ui, app: &mut App, cmd_tx: &mpsc::Sender<GpuCommand>)
 
         ui.add_space(8.0);
 
-        // Fan Speed (NVAPI - not yet implemented)
+        // Fan Speed - display only, not implemented (needs NVAPI)
         egui::Frame::NONE
             .fill(p.panel_bg)
             .corner_radius(egui::CornerRadius::same(6))
-            .stroke(egui::Stroke::new(1.0, p.border.gamma_multiply(0.5)))
+            .stroke(egui::Stroke::new(1.0_f32, p.border.gamma_multiply(0.5)))
             .inner_margin(egui::Margin::same(12))
             .show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new("Fan Speed").size(13.0).color(p.dim).strong());
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(egui::RichText::new("Requires NVAPI (coming soon)").size(9.0).color(p.dim));
+                        ui.label(egui::RichText::new("Not implemented").size(9.0).color(p.dim));
                     });
                 });
                 ui.label(egui::RichText::new(format!("Current: {}%", gpu.fan_rpm.unwrap_or(0))).size(11.0).color(p.dim));
@@ -118,18 +120,18 @@ pub fn draw(ui: &mut egui::Ui, app: &mut App, cmd_tx: &mpsc::Sender<GpuCommand>)
 
         ui.add_space(8.0);
 
-        // Core Clock Offset (NVAPI - not yet implemented)
+        // Core Clock Offset - display only, not implemented (needs NVAPI)
         egui::Frame::NONE
             .fill(p.panel_bg)
             .corner_radius(egui::CornerRadius::same(6))
-            .stroke(egui::Stroke::new(1.0, p.border.gamma_multiply(0.5)))
+            .stroke(egui::Stroke::new(1.0_f32, p.border.gamma_multiply(0.5)))
             .inner_margin(egui::Margin::same(12))
             .show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new("Core Clock Offset").size(13.0).color(p.dim).strong());
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(egui::RichText::new("Requires NVAPI (coming soon)").size(9.0).color(p.dim));
+                        ui.label(egui::RichText::new("Not implemented").size(9.0).color(p.dim));
                     });
                 });
                 if let Some(core) = gpu.clock_core_mhz {
@@ -139,18 +141,18 @@ pub fn draw(ui: &mut egui::Ui, app: &mut App, cmd_tx: &mpsc::Sender<GpuCommand>)
 
         ui.add_space(8.0);
 
-        // Memory Clock Offset (NVAPI - not yet implemented)
+        // Memory Clock Offset - display only, not implemented (needs NVAPI)
         egui::Frame::NONE
             .fill(p.panel_bg)
             .corner_radius(egui::CornerRadius::same(6))
-            .stroke(egui::Stroke::new(1.0, p.border.gamma_multiply(0.5)))
+            .stroke(egui::Stroke::new(1.0_f32, p.border.gamma_multiply(0.5)))
             .inner_margin(egui::Margin::same(12))
             .show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new("Memory Clock Offset").size(13.0).color(p.dim).strong());
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(egui::RichText::new("Requires NVAPI (coming soon)").size(9.0).color(p.dim));
+                        ui.label(egui::RichText::new("Not implemented").size(9.0).color(p.dim));
                     });
                 });
                 if let Some(mem) = gpu.clock_mem_mhz {

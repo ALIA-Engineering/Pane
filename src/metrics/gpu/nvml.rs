@@ -89,6 +89,12 @@ impl GpuBackend for NvmlBackend {
             None => return,
         };
 
+        // One sysinfo snapshot per tick, shared by every device/PID lookup.
+        // The old code built a fresh System per process name, ~120 times per
+        // second at 500 ms refresh across 30 processes.
+        let mut sys = sysinfo::System::new();
+        sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+
         for dev in &mut self.devices {
             let h = match nvml.device_by_index(dev.index) {
                 Ok(h) => h,
@@ -140,39 +146,22 @@ impl GpuBackend for NvmlBackend {
             // Fan speed (NVML gives percentage, not RPM)
             dev.metrics.fan_rpm = h.fan_speed(0).ok();
 
-            // Per-GPU processes
-            let mut gpu_procs = Vec::new();
+            // Per-GPU processes. NVML reports graphics and compute contexts
+            // separately and the same PID can appear in both lists.
+            let graphics: Vec<(u32, u64)> = h
+                .running_graphics_processes()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|p| (p.pid, extract_gpu_mem(p.used_gpu_memory)))
+                .collect();
+            let compute: Vec<(u32, u64)> = h
+                .running_compute_processes()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|p| (p.pid, extract_gpu_mem(p.used_gpu_memory)))
+                .collect();
 
-            // Graphics processes
-            if let Ok(procs) = h.running_graphics_processes() {
-                for p in procs {
-                    gpu_procs.push(GpuProcessInfo {
-                        pid: p.pid,
-                        name: process_name(p.pid),
-                        used_gpu_memory: extract_gpu_mem(p.used_gpu_memory),
-                        kind: GpuProcessKind::Graphics,
-                    });
-                }
-            }
-
-            // Compute processes
-            if let Ok(procs) = h.running_compute_processes() {
-                for p in procs {
-                    // Avoid duplicates if same PID is in both lists
-                    if !gpu_procs.iter().any(|gp| gp.pid == p.pid) {
-                        gpu_procs.push(GpuProcessInfo {
-                            pid: p.pid,
-                            name: process_name(p.pid),
-                            used_gpu_memory: extract_gpu_mem(p.used_gpu_memory),
-                            kind: GpuProcessKind::Compute,
-                        });
-                    }
-                }
-            }
-
-            // Sort by VRAM usage descending
-            gpu_procs.sort_by_key(|p| std::cmp::Reverse(p.used_gpu_memory));
-            dev.metrics.processes = gpu_procs;
+            dev.metrics.processes = merge_processes(&graphics, &compute, |pid| process_name(&sys, pid));
         }
     }
 
@@ -191,6 +180,50 @@ impl GpuBackend for NvmlBackend {
     }
 }
 
+/// Merge NVML's graphics and compute process lists into one table.
+///
+/// - A PID present in both lists is reported once, as `Graphics`
+///   (the graphics context is the one the user sees on screen).
+/// - Duplicate PIDs *within* a list are collapsed, summing memory: NVML can
+///   report one entry per context.
+/// - Result is sorted by VRAM descending, then PID ascending for stability.
+///
+/// Split out from the NVML call path so it can be unit tested without a GPU.
+fn merge_processes(
+    graphics: &[(u32, u64)],
+    compute: &[(u32, u64)],
+    resolve_name: impl Fn(u32) -> String,
+) -> Vec<GpuProcessInfo> {
+    let mut out: Vec<GpuProcessInfo> = Vec::new();
+
+    let push = |pid: u32, mem: u64, kind: GpuProcessKind, out: &mut Vec<GpuProcessInfo>| {
+        if let Some(existing) = out.iter_mut().find(|p: &&mut GpuProcessInfo| p.pid == pid) {
+            existing.used_gpu_memory = existing.used_gpu_memory.saturating_add(mem);
+            return;
+        }
+        out.push(GpuProcessInfo {
+            pid,
+            name: resolve_name(pid),
+            used_gpu_memory: mem,
+            kind,
+        });
+    };
+
+    for &(pid, mem) in graphics {
+        push(pid, mem, GpuProcessKind::Graphics, &mut out);
+    }
+    for &(pid, mem) in compute {
+        push(pid, mem, GpuProcessKind::Compute, &mut out);
+    }
+
+    out.sort_by(|a, b| {
+        b.used_gpu_memory
+            .cmp(&a.used_gpu_memory)
+            .then(a.pid.cmp(&b.pid))
+    });
+    out
+}
+
 /// Extract GPU memory usage from NVML's enum type.
 fn extract_gpu_mem(mem: nvml_wrapper::enums::device::UsedGpuMemory) -> u64 {
     match mem {
@@ -199,12 +232,100 @@ fn extract_gpu_mem(mem: nvml_wrapper::enums::device::UsedGpuMemory) -> u64 {
     }
 }
 
-/// Resolve PID to process name via sysinfo.
-fn process_name(pid: u32) -> String {
-    use sysinfo::{Pid, System};
-    let mut sys = System::new();
-    sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[Pid::from_u32(pid)]), true);
+/// Resolve PID to process name from a sysinfo snapshot refreshed once per tick.
+fn process_name(sys: &sysinfo::System, pid: u32) -> String {
+    use sysinfo::Pid;
     sys.process(Pid::from_u32(pid))
         .map(|p| p.name().to_string_lossy().to_string())
         .unwrap_or_else(|| format!("PID {}", pid))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nvml_wrapper::enums::device::UsedGpuMemory;
+
+    fn stub_name(pid: u32) -> String {
+        format!("proc{pid}")
+    }
+
+    #[test]
+    fn extract_gpu_mem_handles_both_variants() {
+        assert_eq!(extract_gpu_mem(UsedGpuMemory::Used(4_294_967_296)), 4_294_967_296);
+        assert_eq!(extract_gpu_mem(UsedGpuMemory::Used(0)), 0);
+        // WDDM consumer GPUs return Unavailable - must degrade to 0, not panic.
+        assert_eq!(extract_gpu_mem(UsedGpuMemory::Unavailable), 0);
+    }
+
+    #[test]
+    fn merge_sorts_by_vram_descending() {
+        let procs = merge_processes(&[(10, 1024), (11, 8192), (12, 4096)], &[], stub_name);
+        assert_eq!(
+            procs.iter().map(|p| p.pid).collect::<Vec<_>>(),
+            vec![11, 12, 10]
+        );
+        assert_eq!(procs[0].name, "proc11");
+    }
+
+    #[test]
+    fn merge_dedups_pid_present_in_both_lists() {
+        let procs = merge_processes(&[(7, 2048)], &[(7, 9999), (8, 512)], stub_name);
+        assert_eq!(procs.len(), 2);
+        let seven = procs.iter().find(|p| p.pid == 7).unwrap();
+        // Same PID in both lists is one context reported twice by NVML,
+        // so memory accumulates and the kind stays Graphics.
+        assert_eq!(seven.kind, GpuProcessKind::Graphics);
+        assert_eq!(seven.used_gpu_memory, 2048 + 9999);
+    }
+
+    #[test]
+    fn merge_labels_compute_only_pids() {
+        let procs = merge_processes(&[], &[(42, 1)], stub_name);
+        assert_eq!(procs[0].kind, GpuProcessKind::Compute);
+    }
+
+    #[test]
+    fn merge_handles_empty_input() {
+        assert!(merge_processes(&[], &[], stub_name).is_empty());
+    }
+
+    #[test]
+    fn merge_ties_break_on_pid() {
+        let procs = merge_processes(&[(30, 100), (10, 100), (20, 100)], &[], stub_name);
+        assert_eq!(
+            procs.iter().map(|p| p.pid).collect::<Vec<_>>(),
+            vec![10, 20, 30]
+        );
+    }
+
+    #[test]
+    fn merge_saturates_on_overflow() {
+        let procs = merge_processes(&[(1, u64::MAX)], &[(1, 4096)], stub_name);
+        assert_eq!(procs[0].used_gpu_memory, u64::MAX);
+    }
+
+    /// Live check against the real driver. Ignored by default.
+    #[test]
+    #[ignore = "requires an NVIDIA GPU + driver; run with --ignored"]
+    fn live_nvml_reports_devices() {
+        let mut backend = NvmlBackend::try_new().expect("NVML init failed");
+        backend.refresh();
+        let metrics = backend.metrics();
+        assert!(!metrics.is_empty());
+        for (i, m) in metrics.iter().enumerate() {
+            println!(
+                "GPU {i}: {} | util {:.0}% | vram {:.1}/{:.1} GiB | temp {:?}C | power {:?}W | limit {:?}W | procs {}",
+                m.name,
+                m.utilization,
+                m.vram_used as f64 / (1024.0 * 1024.0 * 1024.0),
+                m.vram_total as f64 / (1024.0 * 1024.0 * 1024.0),
+                m.temp_core,
+                m.power_watts.map(|w| w.round()),
+                m.power_limit.map(|w| w.round()),
+                m.processes.len(),
+            );
+            assert!(m.vram_total > 0, "vram_total should be known");
+            assert!((0.0..=100.0).contains(&m.vram_pct()));
+        }
+    }
 }

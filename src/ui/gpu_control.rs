@@ -1,7 +1,8 @@
 //! GPU Control Panel - adjust fan speed, power limit, clock offsets.
 //!
 //! Arrow keys to navigate rows, Left/Right to adjust values.
-//! Changes are applied live via NVML (power limit) or NVAPI (clocks, fan).
+//! Only the power limit is applied, via NVML. Fan and clock rows are display
+//! only - Pane has no NVAPI/ADL integration.
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};

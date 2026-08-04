@@ -21,11 +21,13 @@ const MODELS: &[(&str, &str, f64, f64, f64, f64)] = &[
     ("Qwen3 Coder 80B", "80B",  45.0,  54.0,  82.0,  160.0),
 ];
 
-/// Estimate KV cache size in GB for a given context length and model size.
+const BYTES_PER_GB: f64 = 1024.0 * 1024.0 * 1024.0;
+
+/// Estimate KV cache size in GB for a given context length and model shape.
 fn kv_cache_gb(context_len: usize, num_layers: usize, head_dim: usize, num_kv_heads: usize) -> f64 {
-    // KV cache = 2 * layers * kv_heads * head_dim * context * 2bytes (FP16)
+    // KV cache = 2 (K and V) * layers * kv_heads * head_dim * context * 2 bytes (FP16)
     let bytes = 2.0 * num_layers as f64 * num_kv_heads as f64 * head_dim as f64 * context_len as f64 * 2.0;
-    bytes / (1024.0 * 1024.0 * 1024.0)
+    bytes / BYTES_PER_GB
 }
 
 /// Rough KV cache estimate based on param count string.
@@ -42,17 +44,74 @@ fn estimate_kv_cache(params: &str, context: usize) -> f64 {
     }
 }
 
+/// Free VRAM on a single card, in bytes. Never underflows.
+fn free_bytes(used: u64, total: u64) -> u64 {
+    total.saturating_sub(used)
+}
+
+/// Aggregate free VRAM across all detected GPUs.
+///
+/// Returns `(largest_single_card_free, combined_free)` in bytes. A model must
+/// fit in the largest single card to run unsplit; the combined figure is only
+/// meaningful for runtimes that shard layers across devices.
+fn aggregate_free(gpus: &[(u64, u64)]) -> (u64, u64) {
+    let largest = gpus
+        .iter()
+        .map(|&(used, total)| free_bytes(used, total))
+        .max()
+        .unwrap_or(0);
+    let combined = gpus
+        .iter()
+        .fold(0u64, |acc, &(used, total)| {
+            acc.saturating_add(free_bytes(used, total))
+        });
+    (largest, combined)
+}
+
+fn bytes_to_gb(bytes: u64) -> f64 {
+    bytes as f64 / BYTES_PER_GB
+}
+
+/// Does `weights_gb` plus KV cache fit in `free_gb`?
+fn fits(weights_gb: f64, kv_gb: f64, free_gb: f64) -> bool {
+    weights_gb + kv_gb < free_gb
+}
+
+/// Context-length hint derived from leftover VRAM after weights + 4k KV cache.
+fn max_context_label(headroom_gb: f64) -> &'static str {
+    if headroom_gb > 4.0 {
+        "32k+"
+    } else if headroom_gb > 1.0 {
+        "8k"
+    } else {
+        "4k"
+    }
+}
+
+/// Verdict string for a model row, given Q4 size and current free VRAM.
+fn verdict(q4_gb: f64, kv_gb: f64, largest_free_gb: f64, combined_free_gb: f64, gpu_count: usize) -> String {
+    if fits(q4_gb, kv_gb, largest_free_gb) {
+        let headroom = largest_free_gb - q4_gb - kv_gb;
+        format!("Q4 fits ({}ctx)", max_context_label(headroom))
+    } else if gpu_count > 1 && fits(q4_gb, kv_gb, combined_free_gb) {
+        "Q4 fits (split)".into()
+    } else {
+        "Too large".into()
+    }
+}
+
 pub fn draw(ui: &mut egui::Ui, app: &App) {
     let p = theme::p();
 
     egui::ScrollArea::vertical().show(ui, |ui| {
         widgets::section_header(ui, "VRAM Headroom Calculator");
 
+        let vram: Vec<(u64, u64)> = app.gpus.iter().map(|g| (g.vram_used, g.vram_total)).collect();
+        let (largest_free, total_free) = aggregate_free(&vram);
+
         // Show available VRAM per GPU
-        let mut total_free: u64 = 0;
         for (i, gpu) in app.gpus.iter().enumerate() {
-            let free = gpu.vram_total.saturating_sub(gpu.vram_used);
-            total_free += free;
+            let free = free_bytes(gpu.vram_used, gpu.vram_total);
             ui.horizontal(|ui| {
                 let short = gpu.name.replace("NVIDIA GeForce ", "");
                 ui.label(egui::RichText::new(format!("GPU {}: {}", i, short)).size(12.0).color(p.text));
@@ -76,9 +135,8 @@ pub fn draw(ui: &mut egui::Ui, app: &App) {
         ui.label(egui::RichText::new("Based on current free VRAM (single GPU: largest card)").size(10.0).color(p.dim));
         ui.add_space(4.0);
 
-        let largest_free = app.gpus.iter().map(|g| g.vram_total.saturating_sub(g.vram_used)).max().unwrap_or(0);
-        let largest_free_gb = largest_free as f64 / (1024.0 * 1024.0 * 1024.0);
-        let combined_free_gb = total_free as f64 / (1024.0 * 1024.0 * 1024.0);
+        let largest_free_gb = bytes_to_gb(largest_free);
+        let combined_free_gb = bytes_to_gb(total_free);
 
         // Model table
         egui_extras::TableBuilder::new(ui)
@@ -105,40 +163,16 @@ pub fn draw(ui: &mut egui::Ui, app: &App) {
 
                     row.col(|ui| { ui.label(egui::RichText::new(name).size(11.0)); });
 
-                    // Q4
-                    row.col(|ui| {
-                        let fits_single = q4 + kv_4k < largest_free_gb;
-                        let color = if fits_single { p.green } else { p.red };
-                        ui.label(egui::RichText::new(format!("{:.0}G", q4)).size(11.0).color(color));
-                    });
-                    // Q5
-                    row.col(|ui| {
-                        let fits = q5 + kv_4k < largest_free_gb;
-                        ui.label(egui::RichText::new(format!("{:.0}G", q5)).size(11.0).color(if fits { p.green } else { p.red }));
-                    });
-                    // Q8
-                    row.col(|ui| {
-                        let fits = q8 + kv_4k < largest_free_gb;
-                        ui.label(egui::RichText::new(format!("{:.0}G", q8)).size(11.0).color(if fits { p.green } else { p.red }));
-                    });
-                    // FP16
-                    row.col(|ui| {
-                        let fits = fp16 + kv_4k < largest_free_gb;
-                        ui.label(egui::RichText::new(format!("{:.0}G", fp16)).size(11.0).color(if fits { p.green } else { p.red }));
-                    });
+                    for size in [q4, q5, q8, fp16] {
+                        row.col(|ui| {
+                            let color = if fits(size, kv_4k, largest_free_gb) { p.green } else { p.red };
+                            ui.label(egui::RichText::new(format!("{:.0}G", size)).size(11.0).color(color));
+                        });
+                    }
 
                     // Verdict
                     row.col(|ui| {
-                        let best_fit = if q4 + kv_4k < largest_free_gb {
-                            let headroom = largest_free_gb - q4 - kv_4k;
-                            let max_ctx = if headroom > 4.0 { "32k+" } else if headroom > 1.0 { "8k" } else { "4k" };
-                            format!("Q4 fits ({}ctx)", max_ctx)
-                        } else if q4 + kv_4k < combined_free_gb && app.gpus.len() > 1 {
-                            "Q4 fits (split)".into()
-                        } else {
-                            "Too large".into()
-                        };
-
+                        let best_fit = verdict(q4, kv_4k, largest_free_gb, combined_free_gb, app.gpus.len());
                         let color = if best_fit.contains("fits") { p.green } else { p.dim };
                         ui.label(egui::RichText::new(best_fit).size(10.0).color(color));
                     });
@@ -148,4 +182,147 @@ pub fn draw(ui: &mut egui::Ui, app: &App) {
         ui.add_space(12.0);
         ui.label(egui::RichText::new("Sizes include model weights only. KV cache adds ~0.1-2GB depending on context length. Actual usage varies by runtime.").size(10.0).color(p.dim));
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const GB: u64 = 1024 * 1024 * 1024;
+
+    #[test]
+    fn kv_cache_matches_hand_calculation() {
+        // 2 * 32 layers * 8 kv_heads * 128 head_dim * 4096 ctx * 2 bytes
+        let expected = (2.0 * 32.0 * 8.0 * 128.0 * 4096.0 * 2.0) / (1024.0 * 1024.0 * 1024.0);
+        assert!((kv_cache_gb(4096, 32, 128, 8) - expected).abs() < 1e-12);
+        // ~0.5 GiB for an 8B model at 4k context.
+        assert!((kv_cache_gb(4096, 32, 128, 8) - 0.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn kv_cache_scales_linearly_with_context() {
+        let a = kv_cache_gb(4096, 80, 128, 8);
+        let b = kv_cache_gb(8192, 80, 128, 8);
+        assert!((b - 2.0 * a).abs() < 1e-12);
+    }
+
+    #[test]
+    fn kv_cache_is_zero_for_zero_context() {
+        assert_eq!(kv_cache_gb(0, 80, 128, 8), 0.0);
+    }
+
+    #[test]
+    fn estimate_kv_cache_uses_per_class_shapes() {
+        assert_eq!(estimate_kv_cache("8B", 4096), kv_cache_gb(4096, 32, 128, 8));
+        assert_eq!(estimate_kv_cache("70B", 4096), kv_cache_gb(4096, 80, 128, 8));
+        assert_eq!(estimate_kv_cache("405B", 4096), kv_cache_gb(4096, 126, 128, 8));
+        // Unknown class falls back to a fixed guess rather than 0.
+        assert_eq!(estimate_kv_cache("3B", 4096), 0.5);
+        assert_eq!(estimate_kv_cache("", 4096), 0.5);
+        // Bigger model class => bigger cache.
+        assert!(estimate_kv_cache("405B", 4096) > estimate_kv_cache("8B", 4096));
+    }
+
+    #[test]
+    fn every_model_row_has_a_kv_estimate() {
+        for (name, params, ..) in MODELS {
+            let kv = estimate_kv_cache(params, 4096);
+            assert!(kv > 0.0, "{name} ({params}) has no KV estimate");
+        }
+    }
+
+    #[test]
+    fn model_table_is_monotonic_across_quants() {
+        for &(name, _, q4, q5, q8, fp16) in MODELS {
+            assert!(q4 < q5, "{name}: Q4 should be smaller than Q5");
+            assert!(q5 < q8, "{name}: Q5 should be smaller than Q8");
+            assert!(q8 < fp16, "{name}: Q8 should be smaller than FP16");
+        }
+    }
+
+    #[test]
+    fn free_bytes_never_underflows() {
+        assert_eq!(free_bytes(4 * GB, 24 * GB), 20 * GB);
+        // Driver can briefly report used > total; must clamp, not wrap.
+        assert_eq!(free_bytes(25 * GB, 24 * GB), 0);
+        assert_eq!(free_bytes(0, 0), 0);
+    }
+
+    #[test]
+    fn dual_gpu_aggregation_5090_plus_4090() {
+        // RTX 5090 (32 GiB, 8 used) + RTX 4090 (24 GiB, 4 used).
+        let gpus = [(8 * GB, 32 * GB), (4 * GB, 24 * GB)];
+        let (largest, combined) = aggregate_free(&gpus);
+        assert_eq!(largest, 24 * GB); // 5090 has more free
+        assert_eq!(combined, 44 * GB);
+    }
+
+    #[test]
+    fn largest_is_not_always_the_biggest_card() {
+        // 32 GiB card nearly full, 24 GiB card empty.
+        let gpus = [(31 * GB, 32 * GB), (0, 24 * GB)];
+        let (largest, combined) = aggregate_free(&gpus);
+        assert_eq!(largest, 24 * GB);
+        assert_eq!(combined, 25 * GB);
+    }
+
+    #[test]
+    fn aggregation_handles_zero_and_one_gpu() {
+        assert_eq!(aggregate_free(&[]), (0, 0));
+        assert_eq!(aggregate_free(&[(2 * GB, 8 * GB)]), (6 * GB, 6 * GB));
+    }
+
+    #[test]
+    fn verdict_single_card_fit() {
+        // 70B Q4 = 40 GB, KV ~1.25 GB, single card with 48 GB free.
+        let kv = estimate_kv_cache("70B", 4096);
+        assert_eq!(verdict(40.0, kv, 48.0, 48.0, 1), "Q4 fits (32k+ctx)");
+    }
+
+    #[test]
+    fn verdict_split_across_two_cards() {
+        // Neither card fits it alone, but combined does.
+        let v = verdict(40.0, 1.25, 30.0, 52.0, 2);
+        assert_eq!(v, "Q4 fits (split)");
+    }
+
+    #[test]
+    fn verdict_does_not_claim_split_on_single_gpu() {
+        // Same numbers but only one GPU: split is impossible.
+        assert_eq!(verdict(40.0, 1.25, 30.0, 52.0, 1), "Too large");
+    }
+
+    #[test]
+    fn verdict_too_large_for_both() {
+        // DeepSeek V3 Q4 = 377 GB.
+        assert_eq!(verdict(377.0, 2.0, 30.0, 52.0, 2), "Too large");
+    }
+
+    #[test]
+    fn verdict_context_hint_shrinks_with_headroom() {
+        assert!(verdict(10.0, 0.5, 20.0, 20.0, 1).contains("32k+"));
+        assert!(verdict(10.0, 0.5, 13.0, 13.0, 1).contains("8k"));
+        assert!(verdict(10.0, 0.5, 10.9, 10.9, 1).contains("4k"));
+    }
+
+    #[test]
+    fn fits_requires_strict_headroom() {
+        // Exactly equal must not count as fitting - no room for overhead.
+        assert!(!fits(10.0, 2.0, 12.0));
+        assert!(fits(10.0, 2.0, 12.001));
+    }
+
+    #[test]
+    fn max_context_label_boundaries() {
+        assert_eq!(max_context_label(4.1), "32k+");
+        assert_eq!(max_context_label(4.0), "8k");
+        assert_eq!(max_context_label(1.0), "4k");
+        assert_eq!(max_context_label(-3.0), "4k");
+    }
+
+    #[test]
+    fn bytes_to_gb_uses_gibibytes() {
+        assert_eq!(bytes_to_gb(GB), 1.0);
+        assert_eq!(bytes_to_gb(0), 0.0);
+    }
 }

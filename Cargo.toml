@@ -1,9 +1,9 @@
 [package]
 name = "pane"
-version = "4.0.0"
+version = "0.4.1"
 edition = "2024"
 authors = ["Tushar Sharma <Txshar@proton.me>"]
-description = "A transparent window into your system. Cross-platform GPU-aware system monitor."
+description = "A transparent window into your system. GPU-aware system monitor with per-process VRAM and NVML power-limit control."
 repository = "https://github.com/TxsharDev/pane"
 license = "MIT"
 readme = "README.md"
@@ -43,15 +43,15 @@ nvml-wrapper = "0.10"
 eframe = { version = "0.31", default-features = false, features = ["x11", "wayland"] }
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.62", features = [
-    "Win32_System_Performance",
-    "Win32_Graphics_Direct3D",
-] }
+# PDH (Performance Data Helper) - per-process GPU counters, see src/metrics/gpu/pdh.rs
+windows = { version = "0.62", features = ["Win32_System_Performance", "Win32_UI_Shell"] }
 
 [features]
 default = ["nvidia", "tui"]
+# NVIDIA support via NVML. Currently always compiled in; the flag exists so the
+# CI matrix can name it explicitly and so an AMD backend can be added later.
 nvidia = []
-amd = []
+# Builds the secondary `pane-tui` ratatui binary.
 tui = ["dep:ratatui", "dep:crossterm"]
 
 [target.'cfg(windows)'.build-dependencies]

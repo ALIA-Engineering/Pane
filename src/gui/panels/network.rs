@@ -12,7 +12,7 @@ pub fn draw(ui: &mut egui::Ui, app: &App) {
             egui::Frame::NONE
                 .fill(theme::p().panel_bg)
                 .corner_radius(egui::CornerRadius::same(6))
-                .stroke(egui::Stroke::new(1.0, theme::p().border))
+                .stroke(egui::Stroke::new(1.0_f32, theme::p().border))
                 .inner_margin(egui::Margin::same(8))
                 .show(ui, |ui| {
                     ui.set_min_width(ui.available_width());

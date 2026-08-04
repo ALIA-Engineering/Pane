@@ -9,6 +9,7 @@ pub trait GpuBackend {
     fn metrics(&self) -> Vec<GpuMetrics>;
 
     /// Set power limit in watts for a GPU. Returns error message on failure.
+    #[allow(dead_code)] // GUI-only; the TUI has no control panel
     fn set_power_limit(&mut self, _gpu_index: usize, _watts: f64) -> Result<(), String> {
         Err("Not supported on this backend".into())
     }

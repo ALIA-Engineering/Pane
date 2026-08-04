@@ -76,7 +76,7 @@ pub fn draw(ui: &mut egui::Ui, app: &mut App) {
                 )
                 .fill(if is_active { p.accent.gamma_multiply(0.15) } else { p.panel_bg })
                 .stroke(egui::Stroke::new(
-                    if is_active { 1.0 } else { 0.5 },
+                    if is_active { 1.0_f32 } else { 0.5_f32 },
                     if is_active { p.accent } else { p.border },
                 ))
                 .corner_radius(egui::CornerRadius::same(12)),
@@ -101,7 +101,7 @@ pub fn draw(ui: &mut egui::Ui, app: &mut App) {
         egui::Frame::NONE
             .fill(color.gamma_multiply(0.1))
             .corner_radius(egui::CornerRadius::same(6))
-            .stroke(egui::Stroke::new(1.0, color))
+            .stroke(egui::Stroke::new(1.0_f32, color))
             .inner_margin(egui::Margin::same(6))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
@@ -120,7 +120,7 @@ pub fn draw(ui: &mut egui::Ui, app: &mut App) {
         egui::Frame::NONE
             .fill(p.red.gamma_multiply(0.1))
             .corner_radius(egui::CornerRadius::same(6))
-            .stroke(egui::Stroke::new(1.0, p.red))
+            .stroke(egui::Stroke::new(1.0_f32, p.red))
             .inner_margin(egui::Margin::same(8))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {

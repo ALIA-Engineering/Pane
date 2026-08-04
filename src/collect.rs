@@ -91,6 +91,7 @@ fn hidden_cmd(program: &str) -> std::process::Command {
 }
 
 /// Check if the current process is running with admin/elevated privileges.
+#[allow(dead_code)] // GUI-only; the TUI has no control panel
 pub fn is_elevated() -> bool {
     #[cfg(windows)]
     {
@@ -108,6 +109,7 @@ pub fn is_elevated() -> bool {
 }
 
 /// Graceful close - asks the process to exit cleanly.
+#[allow(dead_code)] // GUI-only
 pub fn close_process(pid: u32) -> Result<(), String> {
     #[cfg(windows)]
     {
