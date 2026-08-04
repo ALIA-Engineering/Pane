@@ -1,7 +1,5 @@
 # Changelog
 
-All notable changes to Pane will be documented here.
-
 ## [0.4.1] - 2026-08-04 - Taskbar icon, PDH docs, NVML perf
 
 ### Fixed
