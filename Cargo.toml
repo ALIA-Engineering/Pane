@@ -21,7 +21,10 @@ required-features = ["tui"]
 
 [dependencies]
 # GUI
-eframe = { version = "0.31", default-features = false, features = ["default_fonts", "glow", "persistence"] }
+eframe = { version = "0.31", default-features = false, features = ["default_fonts", "wgpu", "persistence"] }
+# Direct wgpu dependency for adapter enumeration (render-GPU selection).
+# Version must match what eframe's wgpu feature pulls in.
+wgpu = "24"
 egui_extras = { version = "0.31", features = ["image"] }
 egui_plot = "0.31"
 

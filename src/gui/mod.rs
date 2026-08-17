@@ -34,10 +34,14 @@ pub struct PaneApp {
     sidebar_width: f32,
     theme_mode: ThemeMode,
     config: Config,
+    /// Adapter names detected at startup, for the render-GPU picker.
+    render_gpus: Vec<String>,
+    /// Set when the render-GPU choice changed this session (applies after restart).
+    render_gpu_changed: bool,
 }
 
 impl PaneApp {
-    pub fn new(cc: &eframe::CreationContext<'_>, config: Config) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>, config: Config, render_gpus: Vec<String>) -> Self {
         // Load custom Airstrike font for branding
         let mut fonts = egui::FontDefinitions::default();
         fonts.font_data.insert(
@@ -102,6 +106,8 @@ impl PaneApp {
             sidebar_width: config.sidebar_width,
             theme_mode: mode,
             config,
+            render_gpus,
+            render_gpu_changed: false,
         }
     }
 
@@ -211,6 +217,38 @@ impl PaneApp {
                     theme::apply(ctx, self.theme_mode);
                     self.config.theme = self.theme_mode.label().to_lowercase();
                     self.config.save();
+                }
+
+                // Render GPU picker - the adapter is fixed at startup, so a
+                // change here only takes effect on the next launch.
+                if !self.render_gpus.is_empty() {
+                    ui.add_space(4.0);
+                    let current = self.config.render_gpu.as_deref().unwrap_or("Automatic");
+                    let mut pick: Option<Option<String>> = None;
+                    egui::ComboBox::from_id_salt("render_gpu")
+                        .width(ui.available_width())
+                        .selected_text(egui::RichText::new(format!("Render: {}", current.replace("NVIDIA GeForce ", ""))).size(10.0).color(p.dim))
+                        .show_ui(ui, |ui| {
+                            if ui.selectable_label(self.config.render_gpu.is_none(), "Automatic").clicked() {
+                                pick = Some(None);
+                            }
+                            for name in &self.render_gpus {
+                                let selected = self.config.render_gpu.as_deref() == Some(name.as_str());
+                                if ui.selectable_label(selected, name).clicked() {
+                                    pick = Some(Some(name.clone()));
+                                }
+                            }
+                        });
+                    if let Some(choice) = pick
+                        && choice != self.config.render_gpu
+                    {
+                        self.config.render_gpu = choice;
+                        self.config.save();
+                        self.render_gpu_changed = true;
+                    }
+                    if self.render_gpu_changed {
+                        ui.label(egui::RichText::new("Applies after restart").size(9.0).color(p.dim));
+                    }
                 }
 
                 ui.add_space(8.0);

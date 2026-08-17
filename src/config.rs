@@ -28,6 +28,11 @@ pub struct Config {
 
     #[serde(default = "default_panel")]
     pub default_panel: String,
+
+    // Adapter-name substring for the GPU the app renders on. None = automatic.
+    // Applied at startup; overridden by the --gpu CLI flag.
+    #[serde(default)]
+    pub render_gpu: Option<String>,
 }
 
 fn default_theme() -> String { "dark".into() }
@@ -47,6 +52,7 @@ impl Default for Config {
             window_height: default_window_height(),
             sidebar_width: default_sidebar_width(),
             default_panel: default_panel(),
+            render_gpu: None,
         }
     }
 }
