@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.5.0] - 2026-08-17 - Render-GPU selection, wgpu backend, ALIA Labs
+
+### Added
+
+- **User-selectable render GPU.** Pane can now render its own UI on a chosen
+  GPU instead of whatever the driver picks. Three ways to choose, highest
+  priority first: the `--gpu <name-substring>` CLI flag, the "Render"
+  dropdown in the sidebar (persisted as `render_gpu` in config.json), or
+  automatic (default). Matching is a case-insensitive substring of the wgpu
+  adapter name. The adapter is fixed at startup, so a dropdown change takes
+  effect after restart. An unmatched name or failed adapter enumeration
+  falls back to automatic selection instead of refusing to start.
+
+### Changed
+
+- **Rendering backend switched from glow (OpenGL) to wgpu.** Required for
+  adapter selection; the adapter is picked via egui-wgpu's
+  `native_adapter_selector` hook.
+- **Rebranded to ALIA Labs.** Repository moved to
+  github.com/ALIA-Engineering/Pane. Sidebar credit, snapshot footer, crate
+  metadata and the AppUserModelID (now `ALIA.Pane`) updated. Existing
+  taskbar pins may need re-pinning because of the AppUserModelID change.
+
 ## [0.4.1] - 2026-08-04 - Taskbar icon, PDH docs, NVML perf
 
 ### Fixed

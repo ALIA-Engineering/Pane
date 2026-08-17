@@ -1,6 +1,6 @@
 [package]
 name = "pane"
-version = "0.4.1"
+version = "0.5.0"
 edition = "2024"
 authors = ["ALIA Labs <adrian@alialabs.org>"]
 description = "A transparent window into your system. GPU-aware system monitor with per-process VRAM and NVML power-limit control."

@@ -124,11 +124,21 @@ One click generates a clean text dump of every metric in your system. Copy to cl
 - **Custom branding** with embedded font and icon
 - **~5MB single binary** - no installer, no runtime, no dependencies
 
+### Render GPU selection
+
+Pane renders through wgpu and can run its own UI on a specific GPU. Three ways to choose, highest priority first:
+
+1. CLI flag: `pane --gpu 4090` - case-insensitive substring of the adapter name
+2. Settings: the "Render" dropdown in the sidebar, persisted as `render_gpu` in config.json
+3. Automatic (default): wgpu picks the high-performance adapter
+
+The adapter is fixed at startup, so a dropdown change takes effect after restart. If the requested name matches no adapter, or adapter enumeration fails, Pane falls back to automatic selection instead of refusing to start.
+
 ---
 
 ## Install
 
-Grab the latest release from [**Releases**](https://github.com/TxsharDev/pane/releases).
+Grab the latest release from [**Releases**](https://github.com/ALIA-Engineering/Pane/releases).
 
 | Platform | File |
 |----------|------|
@@ -208,8 +218,8 @@ Read this before filing a bug.
 ## Build from source
 
 ```bash
-git clone https://github.com/TxsharDev/pane.git
-cd pane
+git clone https://github.com/ALIA-Engineering/Pane.git
+cd Pane
 cargo build --release   # both binaries
 cargo test              # 56 unit tests + 2 live
 ```
@@ -220,7 +230,7 @@ Binary at `target/release/pane.exe` (Windows) or `target/release/pane` (Linux/ma
 
 ## Tech Stack
 
-Immediate-mode GUI via [egui](https://github.com/emilk/egui) with hardware-accelerated rendering (eframe, glow backend). Optional ratatui TUI as a second binary. System metrics via [sysinfo](https://github.com/GuillaumeGomez/sysinfo). NVIDIA device metrics and power-limit control via [nvml-wrapper](https://github.com/Cldfire/nvml-wrapper). Per-process GPU data on Windows via the PDH API, called directly through [windows-rs](https://github.com/microsoft/windows-rs) (`Win32_System_Performance`), with a PowerShell `Get-Counter` fallback. CI builds for Windows, Linux, macOS (x64 + ARM64) via GitHub Actions and runs the unit-test suite.
+Immediate-mode GUI via [egui](https://github.com/emilk/egui) with hardware-accelerated rendering (eframe, wgpu backend, user-selectable render adapter). Optional ratatui TUI as a second binary. System metrics via [sysinfo](https://github.com/GuillaumeGomez/sysinfo). NVIDIA device metrics and power-limit control via [nvml-wrapper](https://github.com/Cldfire/nvml-wrapper). Per-process GPU data on Windows via the PDH API, called directly through [windows-rs](https://github.com/microsoft/windows-rs) (`Win32_System_Performance`), with a PowerShell `Get-Counter` fallback. CI builds for Windows, Linux, macOS (x64 + ARM64) via GitHub Actions and runs the unit-test suite.
 
 ---
 
@@ -252,6 +262,6 @@ Tests cover PDH / PowerShell counter-instance parsing, NVML process merging, dua
 </p>
 
 <p align="center">
-  <strong>Built by <a href="https://github.com/TxsharDev">Tushar Sharma</a> at <a href="https://alialabs.org">ALIA Labs</a></strong><br>
+  <strong>Built by <a href="https://alialabs.org">ALIA Labs</a></strong><br>
   Your hardware is doing more than your OS wants you to see. Pane shows you all of it.
 </p>
