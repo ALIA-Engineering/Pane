@@ -6,3 +6,9 @@
 .vscode/settings.json
 *.swp
 *.swo
+
+# Never commit environment files
+.env
+.env.*
+!.env.example
+.dev.vars
