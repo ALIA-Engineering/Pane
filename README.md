@@ -252,6 +252,6 @@ Tests cover PDH / PowerShell counter-instance parsing, NVML process merging, dua
 </p>
 
 <p align="center">
-  <strong>Built by <a href="https://github.com/TxsharDev">Tushar Sharma</a></strong><br>
+  <strong>Built by <a href="https://github.com/TxsharDev">Tushar Sharma</a> at <a href="https://alialabs.org">ALIA Labs</a></strong><br>
   Your hardware is doing more than your OS wants you to see. Pane shows you all of it.
 </p>
