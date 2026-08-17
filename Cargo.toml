@@ -2,9 +2,9 @@
 name = "pane"
 version = "0.4.1"
 edition = "2024"
-authors = ["Tushar Sharma <Txshar@proton.me>"]
+authors = ["ALIA Labs <adrian@alialabs.org>"]
 description = "A transparent window into your system. GPU-aware system monitor with per-process VRAM and NVML power-limit control."
-repository = "https://github.com/TxsharDev/pane"
+repository = "https://github.com/ALIA-Engineering/Pane"
 license = "MIT"
 readme = "README.md"
 keywords = ["system-monitor", "gpu", "tui", "performance", "nvidia"]

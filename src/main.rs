@@ -82,7 +82,7 @@ fn set_app_user_model_id(app_id: &str) {
 
 fn main() -> eframe::Result<()> {
     #[cfg(target_os = "windows")]
-    set_app_user_model_id("TxsharDev.Pane");
+    set_app_user_model_id("ALIA.Pane");
 
     let cfg = config::Config::load();
 

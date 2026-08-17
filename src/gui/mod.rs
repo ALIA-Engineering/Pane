@@ -302,8 +302,8 @@ impl PaneApp {
 
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
                     ui.add_space(8.0);
-                    ui.label(egui::RichText::new("Built by Tushar Sharma").size(10.0).color(p.dim));
-                    ui.hyperlink_to(egui::RichText::new("github.com/TxsharDev").size(10.0), "https://github.com/TxsharDev");
+                    ui.label(egui::RichText::new("Built by ALIA Labs").size(10.0).color(p.dim));
+                    ui.hyperlink_to(egui::RichText::new("alialabs.org").size(10.0), "https://alialabs.org");
                 });
             });
 
